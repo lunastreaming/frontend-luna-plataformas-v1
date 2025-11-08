@@ -51,16 +51,12 @@ export default function CategoryPage() {
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
 
-      // Ordenar por id ascendente antes de actualizar el estado
-      // Si id puede ser string (UUID o similar), hacemos comparación segura
       const sorted = data.slice().sort((a, b) => {
         const ia = typeof a.id === 'number' ? a.id : a.id.toString()
         const ib = typeof b.id === 'number' ? b.id : b.id.toString()
-        // si son numéricos, comparar numéricamente
         if (!isNaN(Number(ia)) && !isNaN(Number(ib))) {
           return Number(ia) - Number(ib)
         }
-        // fallback a comparación lexicográfica
         return ia.localeCompare(ib, undefined, { numeric: true })
       })
 
@@ -119,8 +115,6 @@ export default function CategoryPage() {
   const handleToggleStatus = async (id, newStatus) => {
     try {
       const url = `${BASE}/api/categories/${id}/status?status=${encodeURIComponent(newStatus)}`
-
-      // try to obtain a valid access token from the provider
       let token = null
       try {
         token = await ensureValidAccess()
@@ -166,8 +160,7 @@ export default function CategoryPage() {
   const cancelAction = () => {
     setConfirmData({ id: null, name: '', action: '', newStatus: '' })
   }
-
-  return (
+    return (
     <>
       <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white font-inter">
         <AdminNavbar />
@@ -216,7 +209,6 @@ export default function CategoryPage() {
                     return (
                       <tr key={cat.id} className="body-row">
                         <td className="td">{cat.id}</td>
-
                         <td className="td">
                           {cat.imageUrl ? (
                             <div className="img-wrap">
@@ -226,23 +218,13 @@ export default function CategoryPage() {
                             <span className="text-gray-400 italic">Sin imagen</span>
                           )}
                         </td>
-
                         <td className="td">{cat.name}</td>
-
-                        <td className="td text-gray-300">
-                          {cat.description || '—'}
-                        </td>
-
+                        <td className="td text-gray-300">{cat.description || '—'}</td>
                         <td className="td">
-                          <span
-                            className={`status-badge ${
-                              cat.status === 'active' ? 'active' : 'inactive'
-                            }`}
-                          >
+                          <span className={`status-badge ${cat.status === 'active' ? 'active' : 'inactive'}`}>
                             {cat.status}
                           </span>
                         </td>
-
                         <td className="td">
                           <div className="actions">
                             <div className="action-col">
@@ -288,7 +270,8 @@ export default function CategoryPage() {
                                   setConfirmData({
                                     id: cat.id,
                                     name: cat.name,
-                                    action: 'delete'
+                                    action: 'delete',
+                                    newStatus: ''
                                   })
                                 }
                                 className="btn-delete"
@@ -330,23 +313,37 @@ export default function CategoryPage() {
 
       <ConfirmModal
         visible={confirmData.id !== null}
+        title={
+          confirmData.action === 'delete'
+            ? 'Confirmar eliminación'
+            : confirmData.newStatus === 'active'
+              ? 'Confirmar publicación'
+              : 'Confirmar desactivación'
+        }
         message={
           confirmData.action === 'delete'
             ? `¿Seguro que quieres eliminar la categoría “${confirmData.name}”?`
             : `¿Cambiar estado de “${confirmData.name}” a "${confirmData.newStatus}"?`
         }
+        confirmText={
+          confirmData.action === 'delete'
+            ? 'Eliminar'
+            : confirmData.newStatus === 'active'
+              ? 'Publicar'
+              : 'Desactivar'
+        }
+        cancelText="Cancelar"
         onConfirm={confirmAction}
         onCancel={cancelAction}
       />
 
       <style jsx>{`
-        /* header row: count + button */
         .header-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 16px;
-          margin-bottom: 16px; /* separación entre header y tabla */
+          margin-bottom: 16px;
         }
         .left-meta { display: flex; align-items: center; gap: 12px; }
         .count-label {
@@ -358,20 +355,9 @@ export default function CategoryPage() {
           border-radius: 10px;
           border: 1px solid rgba(255,255,255,0.04);
         }
-        .count-number {
-          font-weight: 800;
-          font-size: 1.15rem;
-          color: #ffffff;
-        }
-        .count-text {
-          font-size: 0.85rem;
-          color: #cfcfcf;
-          text-transform: lowercase;
-        }
-
+        .count-number { font-weight: 800; font-size: 1.15rem; color: #ffffff; }
+        .count-text { font-size: 0.85rem; color: #cfcfcf; text-transform: lowercase; }
         .right-actions { display: flex; align-items: center; }
-
-        /* wrapper + glass */
         .table-wrapper {
           overflow-x: auto;
           background: rgba(22,22,22,0.6);
@@ -381,7 +367,6 @@ export default function CategoryPage() {
           padding: 16px;
           box-shadow: 0 12px 24px rgba(0,0,0,0.4);
         }
-
         :global(table) {
           width: 100%;
           border-collapse: separate;
@@ -389,17 +374,13 @@ export default function CategoryPage() {
           color: #e1e1e1;
           table-layout: fixed;
         }
-
-        /* Ajuste: menos para Nombre, más para Acciones */
-        .thead-row,
-        .body-row {
+        .thead-row, .body-row {
           display: grid;
-          grid-template-columns: 80px 120px 1.0fr 1.2fr 100px 200px;
+          grid-template-columns: 80px 120px 1fr 1.2fr 100px 200px;
           gap: 12px;
           align-items: center;
           padding: 10px;
         }
-
         .thead-row {
           background: rgba(30,30,30,0.8);
           text-transform: uppercase;
@@ -409,7 +390,6 @@ export default function CategoryPage() {
           border-radius: 10px;
           margin-bottom: 6px;
         }
-
         .th {
           padding: 6px 8px;
           text-align: center;
@@ -417,7 +397,6 @@ export default function CategoryPage() {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-
         .body-row {
           background-color: rgba(22,22,22,0.6);
           border-radius: 12px;
@@ -426,12 +405,7 @@ export default function CategoryPage() {
           margin-bottom: 12px;
           box-shadow: 0 6px 14px rgba(0,0,0,0.16) inset;
         }
-
-        .body-row:hover {
-          background-color: rgba(40,40,40,0.6);
-          transform: translateY(-2px);
-        }
-
+        .body-row:hover { background-color: rgba(40,40,40,0.6); transform: translateY(-2px); }
         .td {
           padding: 6px 8px;
           text-align: center;
@@ -441,8 +415,6 @@ export default function CategoryPage() {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-
-        /* imagen incrementada */
         .img-wrap {
           width: 96px;
           height: 56px;
@@ -453,16 +425,8 @@ export default function CategoryPage() {
           box-shadow: 0 6px 14px rgba(0,0,0,0.35);
           transition: transform 0.28s ease;
         }
-
         .img-wrap:hover { transform: scale(1.06); }
-
-        .img {
-          width: 100%;
-          height: 100%;
-          object-fit: contain;
-          display: block;
-        }
-
+        .img { width: 100%; height: 100%; object-fit: contain; display: block; }
         .status-badge {
           display: inline-block;
           padding: 6px 10px;
@@ -471,36 +435,11 @@ export default function CategoryPage() {
           font-weight: 700;
           text-transform: lowercase;
         }
-
-        .status-badge.active {
-          background: rgba(34,197,94,0.12);
-          color: #4ade80;
-        }
-
-        .status-badge.inactive {
-          background: rgba(245,158,11,0.12);
-          color: #f59e0b;
-        }
-
-        .actions {
-          display: flex;
-          gap: 12px;
-          justify-content: center;
-          align-items: center;
-        }
-
-        .action-col {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-
-        .action-label {
-          margin-top: 6px;
-          font-size: 0.72rem;
-          color: #cfcfcf;
-        }
-
+        .status-badge.active { background: rgba(34,197,94,0.12); color: #4ade80; }
+        .status-badge.inactive { background: rgba(245,158,11,0.12); color: #f59e0b; }
+        .actions { display: flex; gap: 12px; justify-content: center; align-items: center; }
+        .action-col { display: flex; flex-direction: column; align-items: center; }
+        .action-label { margin-top: 6px; font-size: 0.72rem; color: #cfcfcf; }
         .btn-action {
           padding: 10px;
           background: linear-gradient(135deg, #8b5cf6 0%, #22d3ee 100%);
@@ -515,12 +454,7 @@ export default function CategoryPage() {
           transition: transform 0.12s ease, filter 0.12s ease;
           box-shadow: 0 8px 18px rgba(34,211,238,0.08);
         }
-
-        .btn-action:hover {
-          transform: translateY(-2px);
-          filter: brightness(1.04);
-        }
-
+        .btn-action:hover { transform: translateY(-2px); filter: brightness(1.04); }
         .btn-edit {
           padding: 10px;
           background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
@@ -535,12 +469,7 @@ export default function CategoryPage() {
           transition: transform 0.12s ease, filter 0.12s ease;
           box-shadow: 0 8px 18px rgba(250,204,21,0.06);
         }
-
-        .btn-edit:hover {
-          transform: translateY(-2px);
-          filter: brightness(1.03);
-        }
-
+        .btn-edit:hover { transform: translateY(-2px); filter: brightness(1.03); }
         .btn-delete {
           padding: 10px;
           background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
@@ -555,13 +484,7 @@ export default function CategoryPage() {
           transition: transform 0.12s ease, filter 0.12s ease;
           box-shadow: 0 8px 18px rgba(248,113,113,0.06);
         }
-
-        .btn-delete:hover {
-          transform: translateY(-2px);
-          filter: brightness(1.03);
-        }
-
-        /* primary button (Agregar categoría) — tipografía modificada */
+        .btn-delete:hover { transform: translateY(-2px); filter: brightness(1.03); }
         .btn-primary {
           display: inline-flex;
           align-items: center;
@@ -581,31 +504,13 @@ export default function CategoryPage() {
           transition: transform 0.12s ease, filter 0.12s ease;
           will-change: transform;
         }
-
-        .btn-primary:hover {
-          transform: translateY(-3px);
-          filter: brightness(1.04);
-        }
-
-        .btn-icon {
-          width: 18px;
-          height: 18px;
-          display: inline-block;
-          color: inherit;
-        }
-
-        .btn-text {
-          display: inline-block;
-          font-weight: 800;
-          font-size: 0.86rem;
-        }
-
+        .btn-primary:hover { transform: translateY(-3px); filter: brightness(1.04); }
+        .btn-icon { width: 18px; height: 18px; display: inline-block; color: inherit; }
+        .btn-text { display: inline-block; font-weight: 800; font-size: 0.86rem; }
         @media (max-width: 560px) {
           .btn-text { display: none; }
           .btn-primary { padding: 10px; border-radius: 10px; }
         }
-
-        /* responsive adjustments */
         @media (max-width: 980px) {
           .header-row { margin-bottom: 12px; }
           .thead-row, .body-row {
@@ -616,7 +521,6 @@ export default function CategoryPage() {
           .th { font-size: 0.68rem; }
           .action-label { display: none; }
         }
-
         @media (max-width: 560px) {
           .header-row { flex-direction: column; align-items: flex-start; gap: 10px; }
           .thead-row, .body-row {
