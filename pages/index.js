@@ -34,9 +34,6 @@ export default function Home() {
   const rawBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
   const BASE = rawBase.replace(/\/+$/, '')
 
-  // ruta donde pedir stocks en bloque. Cámbiala si tu API usa otra ruta.
-  const STOCKS_PATH = '/api/stocks' // ejemplo: /api/stocks?productIds=id1,id2
-
   // util: construye URL sin duplicar slashes
   const joinApi = (path) => `${BASE}${path.startsWith('/') ? '' : '/'}${path}`
 
@@ -115,84 +112,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory])
 
-  // Helper: pedimos stocks en bloque dado array de productIds
-  async function fetchStocksForProductIds(productIds) {
-    if (!productIds || productIds.length === 0) return {}
-
-    // construye query productIds=id1,id2,...
-    const q = productIds.join(',')
-    const url = joinApi(`${STOCKS_PATH}?productIds=${encodeURIComponent(q)}`)
-
-    try {
-      const res = await fetch(url, { method: 'GET' })
-      if (!res.ok) {
-        console.warn('[fetchStocksForProductIds] stocks endpoint returned', res.status)
-        return {}
-      }
-      const data = await res.json()
-
-      // Normalizar distintas posibles formas de devolver stocks
-      const map = new Map()
-
-      if (Array.isArray(data)) {
-        const first = data[0]
-        if (!first) return {}
-
-        if (first.productId !== undefined && Array.isArray(first.stocks)) {
-          data.forEach(g => {
-            map.set(String(g.productId), { stockResponses: Array.isArray(g.stocks) ? g.stocks : [], stockCount: Array.isArray(g.stocks) ? g.stocks.length : 0 })
-          })
-        } else if (first.productId !== undefined && first.count !== undefined) {
-          data.forEach(it => {
-            map.set(String(it.productId), { stockResponses: [], stockCount: Number(it.count) || 0 })
-          })
-        } else if (first.productId !== undefined || first.product_id !== undefined) {
-          data.forEach(row => {
-            const pid = String(row.productId ?? row.product_id ?? row.product?.id ?? row.productId)
-            const existing = map.get(pid) || { stockResponses: [], stockCount: 0 }
-            existing.stockResponses.push(row)
-            existing.stockCount = existing.stockResponses.length
-            map.set(pid, existing)
-          })
-        } else if (typeof first === 'object') {
-          data.forEach(row => {
-            const pid = String(row.productId ?? row.product_id ?? row.product?.id ?? '')
-            if (!pid) return
-            const existing = map.get(pid) || { stockResponses: [], stockCount: 0 }
-            existing.stockResponses.push(row)
-            existing.stockCount = existing.stockResponses.length
-            map.set(pid, existing)
-          })
-        }
-      } else if (data && typeof data === 'object') {
-        if (Array.isArray(data.items)) {
-          data.items.forEach(row => {
-            const pid = String(row.productId ?? row.product_id ?? row.product?.id ?? '')
-            if (!pid) return
-            const existing = map.get(pid) || { stockResponses: [], stockCount: 0 }
-            existing.stockResponses.push(row)
-            existing.stockCount = existing.stockResponses.length
-            map.set(pid, existing)
-          })
-        } else {
-          Object.keys(data).forEach(k => {
-            const v = data[k]
-            const count = typeof v === 'number' ? v : (v?.count ?? null)
-            if (count === null) return
-            map.set(String(k), { stockResponses: [], stockCount: Number(count) || 0 })
-          })
-        }
-      }
-
-      const result = {}
-      map.forEach((v, k) => { result[k] = v })
-      return result
-    } catch (err) {
-      console.error('[fetchStocksForProductIds] failed', err)
-      return {}
-    }
-  }
-
   async function fetchProducts() {
     setProdLoading(true)
     setProdError(null)
@@ -226,60 +145,29 @@ export default function Home() {
         raw = []
       }
 
-      // Detectar si cada elemento es { product, stockResponses } (tu backend actual)
-      let productsArr = []
-      let inlineStocksMap = {} // productId -> { stockResponses, stockCount }
-      if (raw.length > 0 && raw[0] && (raw[0].product || Array.isArray(raw[0].stockResponses))) {
-        // normalizamos: cada item puede tener .product y .stockResponses
-        raw.forEach(item => {
-          const prod = item.product ?? item
-          const id = String(prod?.id ?? prod?._id ?? prod?.uuid ?? '')
-          if (id) {
-            productsArr.push(prod)
-            const sres = Array.isArray(item.stockResponses) ? item.stockResponses : (Array.isArray(item.stocks) ? item.stocks : [])
-            inlineStocksMap[id] = { stockResponses: sres, stockCount: sres.length }
-          } else if (prod) {
-            productsArr.push(prod) // fallback
-          }
-        })
-      } else {
-        productsArr = raw
-      }
+      // Normalizar usando exclusivamente los stockResponses que vienen inline en cada producto
+      const normalized = raw.map(item => {
+        // if endpoint returns wrapper { product, stockResponses } handle it
+        const p = item.product ?? item
 
-      // Extraer productIds únicos
-      const productIds = Array.from(new Set(productsArr.map(p => p.id ?? p._id ?? p.uuid).filter(Boolean)))
-      // solicitar stocks en bloque (si tienes endpoint) - se usará como prioridad si devuelve datos
-      const stocksMapFromApi = await fetchStocksForProductIds(productIds)
-
-      // Merge: stocksMapFromApi has priority, inlineStocksMap is fallback
-      const mergedStocksMap = { ...inlineStocksMap, ...stocksMapFromApi }
-
-      const normalized = productsArr.map(p => {
-        // product shape is nested product object from backend
         const idRaw = p.id ?? p._id ?? p.uuid ?? null
-        const pidKey = String(idRaw ?? '')
 
-        // Values from product payload
-        const categoryNameFromProduct = p.categoryName ?? null
         const name = p.name ?? p.title ?? 'Sin nombre'
         const salePrice = p.salePrice ?? p.price ?? p.sale_price ?? null
+        const categoryNameFromProduct = p.categoryName ?? null
 
-        // Get stockResponses and count (priority: mergedStocksMap, then product.stockResponses, then [])
-        const mapped = mergedStocksMap[pidKey] || {}
-        const stockResponsesFromMap = Array.isArray(mapped.stockResponses) ? mapped.stockResponses : (Array.isArray(p.stockResponses) ? p.stockResponses : [])
-        const stockCountFromMap = typeof mapped.stockCount === 'number' ? mapped.stockCount : (Array.isArray(p.stockResponses) ? p.stockResponses.length : undefined)
+        // stockResponses must come from the product payload only
+        const inlineStockResponses = Array.isArray(item.stockResponses)
+          ? item.stockResponses
+          : Array.isArray(p.stockResponses)
+            ? p.stockResponses
+            : (Array.isArray(p.stocks) ? p.stocks : [])
 
-        const stockFromField = p.stock ?? p.stock_count ?? p.stockCount ?? p.quantity ?? undefined
-
-        const stockCount = (typeof stockCountFromMap === 'number')
-          ? stockCountFromMap
-          : (typeof stockFromField === 'number' ? stockFromField : 0)
-
-        const finalStockResponses = stockResponsesFromMap.length > 0 ? stockResponsesFromMap : (Array.isArray(p.stockResponses) ? p.stockResponses : [])
+        const stockCount = Array.isArray(inlineStockResponses) ? inlineStockResponses.length : 0
 
         return {
           id: idRaw,
-          providerId: p.providerId ?? p.provider?.id ?? p.providerId ?? null,
+          providerId: p.providerId ?? p.provider?.id ?? null,
           providerName: p.providerName ?? p.provider?.username ?? p.provider?.name ?? null,
           categoryId: p.categoryId ?? p.category_id ?? null,
           categoryName: categoryNameFromProduct,
@@ -299,7 +187,7 @@ export default function Home() {
           publishStart: p.publishStart ?? p.publish_start ?? null,
           publishEnd: p.publishEnd ?? p.publish_end ?? null,
           daysRemaining: p.daysRemaining ?? p.days_remaining ?? null,
-          stockResponses: finalStockResponses,
+          stockResponses: inlineStockResponses,
           stock: stockCount
         }
       })
@@ -576,6 +464,13 @@ export default function Home() {
                         <span>{p.name}</span>
                       </div>
 
+                      {/* provider name (centered) */}
+                      {p.providerName && (
+                        <div className="provider-name" title={p.providerName}>
+                          {p.providerName}
+                        </div>
+                      )}
+
                       {/* price badge above actions */}
                       <div className="price-badge">{formatPrice(p.salePrice)}</div>
 
@@ -732,6 +627,22 @@ export default function Home() {
         .product-price { color:#9ee7d9; font-weight:700; }
         .product-actions { margin-top:auto; display:flex; gap:8px; align-items:center; justify-content:center; }
 
+        .provider-name {
+          color: var(--muted);
+          font-size: 0.88rem;
+          margin-top: 6px;
+          margin-bottom: 6px;
+          font-weight: 600;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          overflow: hidden;
+
+          /* centrado */
+          display: block;
+          width: 100%;
+          text-align: center;
+        }
+
         .btn-primary { background: linear-gradient(90deg,#06b6d4,var(--green-stock)); color: var(--accent-contrast); border:none; padding:8px 10px; border-radius:8px; cursor:pointer; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
         .btn-primary[aria-disabled="true"] { opacity: 0.95; cursor: not-allowed; }
         .btn-outline { background: transparent; border:1px solid rgba(255,255,255,0.06); color:#E6EEF7; padding:8px 10px; border-radius:8px; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
@@ -820,6 +731,7 @@ export default function Home() {
           .subtle-arrow { display:none; }
           .product-actions { flex-direction: column; gap: 8px; align-items: stretch; }
           .stock-pill { justify-content: center; }
+          .provider-name { font-size: 0.9rem; }
         }
       `}</style>
 
