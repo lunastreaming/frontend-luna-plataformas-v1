@@ -1,5 +1,6 @@
 // pages/supplier/stocks.js
 import { useState, useEffect } from 'react'
+import Router from 'next/router'
 import NavbarSupplier from '../../components/NavBarSupplier'
 import StockModal from '../../components/StockModal'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -13,7 +14,7 @@ export default function StocksPage() {
 
   // confirm modal state
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [confirmPayload, setConfirmPayload] = useState({ id: null, name: '', action: '' })
+  const [confirmPayload, setConfirmPayload] = useState({ id: null, name: '', action: '', stock: null })
   const [confirmLoading, setConfirmLoading] = useState(false)
 
   const BASE_URL = process.env.NEXT_PUBLIC_API_URL
@@ -22,16 +23,69 @@ export default function StocksPage() {
     fetchStocks()
   }, [])
 
+  // helper to get Authorization header and debug token presence
+  function getAuthHeaders() {
+    const token = localStorage.getItem('accessToken')
+    console.debug('[StocksPage] accessToken present?', !!token)
+    if (!token) return null
+    return { Authorization: `Bearer ${token}` }
+  }
+
+  // normalize a single stock response so the UI can rely on consistent fields
+  function normalizeStock(raw) {
+    if (!raw) return null
+    const s = raw?.stock ?? raw
+    const profileNumber =
+      s?.numeroPerfil ??
+      s?.profileNumber ??
+      s?.numberProfile ??
+      s?.numero_perfil ??
+      s?.numero_perfil ??
+      null
+
+    // status might be string (e.g. "active"/"inactive") or published boolean
+    const statusString = s?.status ?? (typeof s?.published !== 'undefined' ? (s.published ? 'active' : 'inactive') : null)
+    const publishedBool = typeof s?.published !== 'undefined' ? s.published : (statusString ? statusString.toLowerCase() === 'active' : false)
+
+    return {
+      id: s?.id ?? raw?.id ?? null,
+      productId: s?.productId ?? raw?.productId ?? s?.product_id ?? raw?.product_id ?? null,
+      productName: s?.productName ?? raw?.productName ?? raw?.product?.name ?? s?.product?.name ?? null,
+      username: s?.username ?? raw?.username ?? null,
+      password: s?.password ?? raw?.password ?? null,
+      url: s?.url ?? raw?.url ?? null,
+      tipo: s?.tipo ?? raw?.tipo ?? null,
+      profileNumber: profileNumber,
+      pin: s?.pin ?? raw?.pin ?? null,
+      status: statusString,
+      published: publishedBool,
+      raw: raw
+    }
+  }
+
   const fetchStocks = async () => {
     try {
-      const token = localStorage.getItem('accessToken')
+      const headers = getAuthHeaders()
+      if (!headers) {
+        console.warn('[StocksPage] no access token found in localStorage')
+        return
+      }
+
       const res = await fetch(`${BASE_URL}/api/stocks/provider/me`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers
       })
-      if (!res.ok) throw new Error(`Error ${res.status}`)
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        console.error('[fetchStocks] fetch failed', res.status, txt)
+        throw new Error(`Error ${res.status} ${txt}`)
+      }
+
       const text = await res.text()
       const data = text ? JSON.parse(text) : []
-      setStocks(data)
+
+      const normalized = Array.isArray(data) ? data.map(item => normalizeStock(item)).filter(Boolean) : []
+      setStocks(normalized)
     } catch (err) {
       console.error('Error al cargar stocks:', err)
     }
@@ -43,94 +97,101 @@ export default function StocksPage() {
     return productName.includes(search.toLowerCase())
   })
 
-  const handlePublish = async (stock) => {
-    try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${BASE_URL}/api/stocks/${stock.id}/publish`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ published: true })
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Error ${res.status} ${txt}`)
-      }
-      const updated = await res.json()
-      setStocks(prev => prev.map(s => s.id === updated.id ? updated : s))
-    } catch (err) {
-      console.error('Error al publicar stock:', err)
-      alert('No se pudo publicar el stock: ' + err.message)
-    }
-  }
-
-  const handleUnpublish = async (stock) => {
-    try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${BASE_URL}/api/stocks/${stock.id}/publish`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ published: false })
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Error ${res.status} ${txt}`)
-      }
-      const updated = await res.json()
-      setStocks(prev => prev.map(s => s.id === updated.id ? updated : s))
-    } catch (err) {
-      console.error('Error al cambiar publicado:', err)
-      alert('No se pudo cambiar el estado: ' + err.message)
-    }
-  }
-
-  // confirm delete
-  const confirmDelete = (stock) => {
-    // prefer productName for user-facing confirmation
-    setConfirmPayload({ id: stock.id, name: stock.productName ?? stock.name ?? '', action: 'delete' })
+  // Open confirm modal for toggling status (publish/unpublish)
+  const confirmToggleStatus = (stock) => {
+    const currentStatus = (stock?.status ?? (stock.published ? 'active' : 'inactive'))?.toString().toLowerCase()
+    const target = currentStatus === 'active' ? 'inactive' : 'active'
+    setConfirmPayload({
+      id: stock.id,
+      name: stock.productName ?? stock.name ?? '',
+      action: 'toggleStatus',
+      stock: { ...stock, targetStatus: target }
+    })
     setConfirmOpen(true)
   }
 
+  // Open confirm modal for remove (calls /api/stocks/remove/{id})
+  const confirmRemove = (stock) => {
+    setConfirmPayload({
+      id: stock.id,
+      name: stock.productName ?? stock.name ?? '',
+      action: 'remove',
+      stock
+    })
+    setConfirmOpen(true)
+  }
+
+  // Handle confirm (single entry point)
   const handleConfirm = async () => {
     if (!confirmPayload || !confirmPayload.id) {
       setConfirmOpen(false)
       return
     }
-    if (confirmPayload.action !== 'delete') {
-      setConfirmOpen(false)
-      return
-    }
 
     setConfirmLoading(true)
+
     try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${BASE_URL}/api/stocks/${confirmPayload.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Error ${res.status} ${txt}`)
+      const headers = getAuthHeaders()
+      if (!headers) {
+        alert('No autorizado. Inicia sesión nuevamente.')
+        setConfirmLoading(false)
+        setConfirmOpen(false)
+        return
       }
-      setStocks(prev => prev.filter(s => s.id !== confirmPayload.id))
+
+      if (confirmPayload.action === 'toggleStatus') {
+        const stock = confirmPayload.stock
+        const targetStatus = stock.targetStatus || (stock.status === 'active' ? 'inactive' : 'active')
+
+        const res = await fetch(`${BASE_URL}/api/stocks/${confirmPayload.id}/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          },
+          body: JSON.stringify({ status: targetStatus })
+        })
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          console.error('[handleConfirm][toggleStatus] failed', res.status, txt)
+          throw new Error(`Error ${res.status} ${txt}`)
+        }
+
+        const updated = await res.json()
+        const norm = normalizeStock(updated) ?? updated
+        setStocks(prev => prev.map(s => s.id === (norm.id ?? updated.id) ? norm : s))
+
+      } else if (confirmPayload.action === 'remove') {
+        // DELETE /api/stocks/remove/{id}
+        const res = await fetch(`${BASE_URL}/api/stocks/remove/${confirmPayload.id}`, {
+          method: 'DELETE',
+          headers: {
+            ...headers
+          }
+        })
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          console.error('[handleConfirm][remove] failed', res.status, txt)
+          throw new Error(`Error ${res.status} ${txt}`)
+        }
+        // Remove from UI
+        setStocks(prev => prev.filter(s => s.id !== confirmPayload.id))
+      }
+
     } catch (err) {
-      console.error('Error al eliminar stock:', err)
-      alert('No se pudo eliminar el stock: ' + err.message)
+      console.error('Error en acción confirmada:', err)
+      alert('No se pudo completar la acción: ' + (err.message || err))
     } finally {
       setConfirmLoading(false)
       setConfirmOpen(false)
-      setConfirmPayload({ id: null, name: '', action: '' })
+      setConfirmPayload({ id: null, name: '', action: '', stock: null })
     }
   }
 
   const handleCancelConfirm = () => {
     setConfirmOpen(false)
-    setConfirmPayload({ id: null, name: '', action: '' })
+    setConfirmPayload({ id: null, name: '', action: '', stock: null })
   }
 
   const handleEdit = (stock) => {
@@ -138,16 +199,53 @@ export default function StocksPage() {
     setShowModal(true)
   }
 
+  // adapt handleModalSuccess to accept either a single created/updated object or an array (batch)
   const handleModalSuccess = (createdOrUpdated) => {
-    setStocks(prev => {
-      const exists = prev.some(s => s.id === createdOrUpdated.id)
-      if (exists) {
-        return prev.map(s => s.id === createdOrUpdated.id ? createdOrUpdated : s)
-      }
-      return [createdOrUpdated, ...prev]
-    })
+    if (!createdOrUpdated) {
+      setShowModal(false)
+      setEditingStock(null)
+      return
+    }
+
+    if (Array.isArray(createdOrUpdated)) {
+      const normalized = createdOrUpdated.map(item => normalizeStock(item) ?? item)
+      setStocks(prev => [...normalized, ...prev])
+    } else {
+      const normalizedItem = normalizeStock(createdOrUpdated) ?? createdOrUpdated
+      setStocks(prev => {
+        const exists = prev.some(s => s.id === normalizedItem.id)
+        if (exists) {
+          return prev.map(s => s.id === normalizedItem.id ? normalizedItem : s)
+        }
+        return [normalizedItem, ...prev]
+      })
+    }
+
     setShowModal(false)
     setEditingStock(null)
+  }
+
+  // helper to render confirm message depending on action
+  const confirmMessage = () => {
+    if (!confirmPayload) return ''
+    if (confirmPayload.action === 'toggleStatus') {
+      const target = confirmPayload.stock?.targetStatus ?? 'active'
+      return `¿Seguro que quieres cambiar el estado de “${confirmPayload.name}” a ${target.toUpperCase()}?`
+    }
+    if (confirmPayload.action === 'remove') {
+      return `¿Seguro que quieres eliminar el stock “${confirmPayload.name}”? Esta acción es irreversible.`
+    }
+    return ''
+  }
+
+  // helper to determine confirm button text
+  const confirmButtonText = () => {
+    if (!confirmPayload) return 'Confirmar'
+    if (confirmPayload.action === 'toggleStatus') {
+      return confirmPayload.stock?.targetStatus === 'active' ? 'Publicar' : 'Dejar de publicar'
+    }
+    if (confirmPayload.action === 'remove') return 'Eliminar'
+    return 'Confirmar'
   }
 
   return (
@@ -246,7 +344,7 @@ export default function StocksPage() {
                   <td>
                     <div className="row-inner">
                       <span className={`status-badge ${s.published ? 'active' : 'inactive'}`}>
-                        {s.published ? 'PUBLICADO' : 'NO PUBLICADO'}
+                        { (s.status ?? (s.published ? 'active' : 'inactive')).toUpperCase() }
                       </span>
                     </div>
                   </td>
@@ -254,18 +352,18 @@ export default function StocksPage() {
                   <td>
                     <div className="row-inner actions">
                       {!s.published ? (
-                        <button className="btn-action" title="Publicar" onClick={() => handlePublish(s)}>
+                        <button className="btn-action" title="Publicar" onClick={() => confirmToggleStatus(s)}>
                           <FaUpload />
                         </button>
                       ) : (
-                        <button className="btn-action" title="Despublicar" onClick={() => handleUnpublish(s)}>
+                        <button className="btn-action" title="Despublicar" onClick={() => confirmToggleStatus(s)}>
                           <FaRedoAlt />
                         </button>
                       )}
                       <button className="btn-edit" title="Editar" onClick={() => handleEdit(s)}>
                         <FaEdit />
                       </button>
-                      <button className="btn-delete" title="Eliminar" onClick={() => confirmDelete(s)}>
+                      <button className="btn-delete" title="Eliminar" onClick={() => confirmRemove(s)}>
                         <FaTrashAlt />
                       </button>
                     </div>
@@ -278,9 +376,9 @@ export default function StocksPage() {
 
         <ConfirmModal
           open={confirmOpen}
-          title="Confirmar eliminación"
-          message={`¿Seguro que quieres eliminar el stock “${confirmPayload.name}”?`}
-          confirmText="Eliminar"
+          title={confirmPayload.action === 'remove' ? 'Confirmar eliminación' : 'Confirmar cambio de estado'}
+          message={confirmMessage()}
+          confirmText={confirmButtonText()}
           cancelText="Cancelar"
           onConfirm={handleConfirm}
           onCancel={handleCancelConfirm}

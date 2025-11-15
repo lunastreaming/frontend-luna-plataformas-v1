@@ -38,13 +38,35 @@ export default function ProductsPage() {
 
   useEffect(() => { fetchProducts() }, [BASE_URL])
 
+  // helper: return headers object or null if no token
+  function getAuthHeaders() {
+    const token = localStorage.getItem('accessToken')
+    console.debug('[ProductsPage] accessToken present?', !!token)
+    if (!token) return null
+    return { Authorization: `Bearer ${token}` }
+  }
+
   const fetchProducts = async () => {
     try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${BASE_URL}/api/products/provider/me`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const headers = getAuthHeaders()
+      if (!headers) {
+        console.warn('[ProductsPage] no access token found in localStorage - aborting fetchProducts')
+        return
+      }
+
+      const url = `${BASE_URL}/api/products/provider/me`
+      console.debug('[fetchProducts] GET', url, headers)
+
+      const res = await fetch(url, {
+        headers
       })
-      if (!res.ok) throw new Error(`Error ${res.status}`)
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        console.error('[fetchProducts] failed', res.status, txt)
+        throw new Error(`Error ${res.status} ${txt}`)
+      }
+
       const text = await res.text()
       const raw = text ? JSON.parse(text) : []
 
@@ -122,22 +144,32 @@ export default function ProductsPage() {
     if (val == null) return '—'
     return String(val)
   }
-    const filtered = products.filter(p =>
+
+  const filtered = products.filter(p =>
     (p.name ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
   const handleRenew = async (product) => {
     try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${BASE_URL}/api/products/${product.id}/renew`, {
+      const headers = getAuthHeaders()
+      if (!headers) {
+        alert('No autorizado. Inicia sesión nuevamente.')
+        return
+      }
+
+      const url = `${BASE_URL}/api/products/${product.id}/renew`
+      console.debug('[handleRenew] PATCH', url, headers)
+
+      const res = await fetch(url, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          ...headers
         }
       })
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
+        console.error('[handleRenew] failed', res.status, txt)
         throw new Error(`Error ${res.status} ${txt}`)
       }
       const updated = await res.json()
@@ -165,15 +197,26 @@ export default function ProductsPage() {
 
     setConfirmLoading(true)
     try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${BASE_URL}/api/products/${confirmPayload.id}`, {
+      const headers = getAuthHeaders()
+      if (!headers) {
+        alert('No autorizado. Inicia sesión nuevamente.')
+        setConfirmLoading(false)
+        setConfirmOpen(false)
+        return
+      }
+
+      const url = `${BASE_URL}/api/products/${confirmPayload.id}`
+      console.debug('[handleConfirm] DELETE', url, headers)
+
+      const res = await fetch(url, {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${token}`
+          ...headers
         }
       })
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
+        console.error('[handleConfirm] delete failed', res.status, txt)
         throw new Error(`Error ${res.status} ${txt}`)
       }
       setProducts(prev => prev.filter(p => p.id !== confirmPayload.id))

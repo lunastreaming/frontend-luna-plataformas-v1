@@ -3,7 +3,13 @@ import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { FaTimes } from 'react-icons/fa'
 
-export default function StockModal({ visible, onClose, onSuccess, initialData = null }) {
+export default function StockModal({
+  visible,
+  onClose,
+  onSuccess,
+  initialData = null,
+  initialProducts = null // opcional: pasar lista ya cargada desde el padre
+}) {
   const [mounted, setMounted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [loadingProducts, setLoadingProducts] = useState(false)
@@ -19,7 +25,6 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
     pin: ''
   })
 
-  // resetForm is hoisted so it can be used safely in useEffect
   function resetForm() {
     setForm({
       productId: '',
@@ -41,7 +46,14 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
       return
     }
 
-    loadProducts()
+    // Si el padre pasó productos reutilízalos, sino haz fetch
+    if (Array.isArray(initialProducts) && initialProducts.length > 0) {
+      const normalized = normalizeProductsArray(initialProducts)
+      setProducts(normalized)
+      setLoadingProducts(false)
+    } else {
+      loadProducts()
+    }
 
     if (initialData) {
       setForm({
@@ -54,21 +66,57 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
         pin: initialData.pin ?? ''
       })
     }
-  }, [visible, initialData])
+  }, [visible, initialData, initialProducts])
 
   if (!mounted || !visible) return null
+
+  // Helper: retorna header Authorization o null si no hay token
+  function getAuthHeader() {
+    const token = localStorage.getItem('accessToken')
+    console.debug('[StockModal] accessToken present?', !!token)
+    return token ? { Authorization: `Bearer ${token}` } : null
+  }
+
+  // Normaliza un array que puede venir como:
+  // - [{ product: {...}, stockResponses: [...] }, ...]
+  // - [{ id, name, ... }, ...]
+  function normalizeProductsArray(raw) {
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map(item => {
+        const product = item?.product ?? item
+        return {
+          id: product?.id ?? null,
+          name: product?.name ?? product?.title ?? 'Sin nombre',
+          imageUrl: product?.imageUrl ?? product?.thumbnail ?? null
+        }
+      })
+      .filter(p => p.id)
+  }
 
   async function loadProducts() {
     setLoadingProducts(true)
     try {
-      const token = localStorage.getItem('accessToken')
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/products/provider/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (!res.ok) throw new Error(`Error ${res.status}`)
-      const text = await res.text()
-      const data = text ? JSON.parse(text) : []
-      setProducts(Array.isArray(data) ? data.map(p => ({ id: p.id, name: p.name })) : [])
+      const headers = getAuthHeader()
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/api/products/provider/me`
+
+      console.debug('[StockModal] fetching products from', url, 'withAuth?', !!headers)
+
+      // Si no hay token, intentamos la petición sin Authorization (backend puede devolver 401/403)
+      const fetchOptions = headers ? { headers } : {}
+
+      const res = await fetch(url, fetchOptions)
+      const text = await res.text().catch(() => '')
+      console.debug('[StockModal] products fetch status', res.status, 'body:', text)
+
+      if (!res.ok) {
+        // Lanzar error con cuerpo para diagnóstico
+        throw new Error(`Error ${res.status}: ${text || res.statusText}`)
+      }
+
+      const raw = text ? JSON.parse(text) : []
+      const normalized = normalizeProductsArray(raw)
+      setProducts(normalized)
     } catch (err) {
       console.error('Error cargando productos:', err)
       setProducts([])
@@ -85,6 +133,12 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
   const validate = () => {
     if (!form.productId) { alert('Selecciona un producto'); return false }
     if (!form.username?.trim()) { alert('El campo Username es obligatorio'); return false }
+    if (form.tipo === 'PERFIL') {
+      if (form.numeroPerfil === '') { alert('Indica la cantidad de perfiles'); return false }
+      const n = Number(form.numeroPerfil)
+      if (!Number.isInteger(n) || n < 1) { alert('Número de perfil debe ser un entero mayor o igual a 1'); return false }
+      if (n > 7) { alert('Máximo 7 stocks por operación'); return false }
+    }
     if (form.numeroPerfil !== '' && isNaN(Number(form.numeroPerfil))) { alert('Número de perfil debe ser un número válido'); return false }
     return true
   }
@@ -93,53 +147,84 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
     if (!validate()) return
     setSubmitting(true)
     try {
-      const token = localStorage.getItem('accessToken')
-
-      const payload = {
-        productId: form.productId,
-        username: form.username.trim(),
-        password: form.password || null,
-        url: form.url || null,
-        type: form.tipo, // use 'type' to match backend DTO field naming
-        numberProfile: form.numeroPerfil === '' ? null : Number(form.numeroPerfil),
-        pin: form.pin || null
+      const headersAuth = getAuthHeader()
+      if (!headersAuth) {
+        alert('No estás autenticado. Inicia sesión e intenta nuevamente.')
+        setSubmitting(false)
+        return
       }
 
-      let res, data
+      // Editar existente (PUT)
       if (initialData && initialData.id) {
-        // editar stock existente
-        res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stocks/${initialData.id}`, {
+        const payload = {
+          productId: form.productId,
+          username: form.username.trim(),
+          password: form.password || null,
+          url: form.url || null,
+          tipo: form.tipo,
+          numeroPerfil: form.numeroPerfil === '' ? null : Number(form.numeroPerfil),
+          pin: form.pin || null
+        }
+
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stocks/${initialData.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', ...headersAuth },
           body: JSON.stringify(payload)
         })
-        if (!res.ok) {
-          const txt = await res.text().catch(() => '')
-          throw new Error(`Error ${res.status} ${txt}`)
-        }
-        data = await res.json()
+        const txt = await res.text().catch(() => '')
+        if (!res.ok) throw new Error(`Error ${res.status}: ${txt || res.statusText}`)
+        const data = txt ? JSON.parse(txt) : {}
         onSuccess(data)
         onClose()
         return
       }
 
-      // creación: si tipo PERFIL y numeroPerfil > 1 quizá quieras usar batch endpoint (backend)
-      // aquí hacemos POST individual (ajusta si usas /api/stock/batch)
-      res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stocks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload)
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Error ${res.status} ${txt}`)
-      }
-      data = await res.json()
+      // Creación: batch endpoint (como en tu implementación original)
+      let stocksToSend = []
 
-      onSuccess(data)
+      if (form.tipo === 'CUENTA') {
+        stocksToSend.push({
+          productId: form.productId,
+          username: form.username.trim(),
+          password: form.password || null,
+          url: form.url || null,
+          tipo: 'CUENTA',
+          numeroPerfil: null,
+          pin: form.pin || null
+        })
+      } else {
+        const n = Number(form.numeroPerfil || 0)
+        const capped = Math.min(n, 7)
+        for (let i = 1; i <= capped; i++) {
+          stocksToSend.push({
+            productId: form.productId,
+            username: form.username.trim(),
+            password: form.password || null,
+            url: form.url || null,
+            tipo: 'PERFIL',
+            numeroPerfil: i,
+            pin: form.pin || null
+          })
+        }
+      }
+
+      const body = { stocks: stocksToSend }
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stocks/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headersAuth },
+        body: JSON.stringify(body)
+      })
+
+      const txt = await res.text().catch(() => '')
+      if (!res.ok) throw new Error(`Error ${res.status}: ${txt || res.statusText}`)
+      const resp = txt ? JSON.parse(txt) : {}
+      const created = resp?.created ?? resp?.createdStocks ?? resp ?? []
+
+      onSuccess(created)
       onClose()
     } catch (err) {
-      console.error('Error guardando stock:', err)
+      console.error('Error guardando stock batch:', err)
       alert('No se pudo guardar el stock: ' + (err.message || err))
     } finally {
       setSubmitting(false)
@@ -155,7 +240,6 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
 
         <form onSubmit={(e) => { e.preventDefault(); handleSubmit() }} style={formGrid}>
 
-          {/* Producto (full width) */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={label}>Producto</label>
             <select
@@ -169,27 +253,28 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
               <option value="">{loadingProducts ? 'Cargando productos…' : 'Selecciona producto'}</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            {!loadingProducts && products.length === 0 && (
+              <div style={{ marginTop: 8, color: '#6b7280', fontSize: 13 }}>
+                No se encontraron productos para tu cuenta. Verifica tu sesión o recarga la página.
+              </div>
+            )}
           </div>
 
-          {/* Username (full width below product) */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={label}>Username</label>
             <input name="username" value={form.username} onChange={handleChange} placeholder="Usuario" style={input} />
           </div>
 
-          {/* Password (left column) */}
           <div>
             <label style={label}>Password</label>
             <input name="password" value={form.password} onChange={handleChange} placeholder="Password" style={{ ...input, fontFamily: 'monospace' }} />
           </div>
 
-          {/* URL full width */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={label}>URL</label>
             <input name="url" value={form.url} onChange={handleChange} placeholder="https://..." style={input} />
           </div>
 
-          {/* Tipo (full width) */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={label}>Tipo</label>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
@@ -204,19 +289,19 @@ export default function StockModal({ visible, onClose, onSuccess, initialData = 
             </div>
           </div>
 
-          {/* NumeroPerfil (left) */}
           <div>
             <label style={label}>Número de perfil</label>
             <input name="numeroPerfil" value={form.numeroPerfil} onChange={handleChange} placeholder="123" style={input} />
+            <div style={{ marginTop: 6, color: '#6b7280', fontSize: 12 }}>
+              {form.tipo === 'PERFIL' ? 'Se crearán N stocks con numeroPerfil de 1..N (máx 7)' : 'Usado solo para PERFIL'}
+            </div>
           </div>
 
-          {/* PIN below numeroPerfil (full width) */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={label}>PIN</label>
             <input name="pin" value={form.pin} onChange={handleChange} placeholder="PIN" style={input} />
           </div>
 
-          {/* Actions */}
           <div style={{ gridColumn: '1 / -1', textAlign: 'right', marginTop: 8 }}>
             <button type="button" onClick={() => { resetForm(); onClose() }} style={cancelBtn}>Cancelar</button>
             <button type="submit" disabled={submitting} style={submitBtn(submitting)}>
