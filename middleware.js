@@ -5,7 +5,7 @@ function decodeJwtPayload(token) {
     const payload = token.split('.')[1]
     const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'))
     return decoded
-  } catch (err) {
+  } catch {
     return null
   }
 }
@@ -14,47 +14,47 @@ export function middleware(request) {
   const { pathname } = request.nextUrl
   const token = request.cookies.get('accessToken')?.value
 
-  // Rutas públicas que no requieren autenticación
-  const publicAdminRoutes = ['/admin/loginAdmin']
-  const publicSupplierRoutes = ['/supplier/loginSupplier', '/supplier/registerSupplier']
+  // --- Rutas públicas ---
+  const publicRoutes = [
+    '/login',
+    '/register',
+    '/admin/loginAdmin',
+    '/supplier/loginSupplier',
+    '/supplier/registerSupplier'
+  ]
 
-  if (publicAdminRoutes.includes(pathname) || publicSupplierRoutes.includes(pathname)) {
+  // Si la ruta empieza con alguna pública, deja pasar
+  if (publicRoutes.some(route => pathname.startsWith(route))) {
     return NextResponse.next()
   }
 
-  // Validación para rutas de administrador
+  // --- Admin ---
   if (pathname.startsWith('/admin')) {
-    if (!token) {
-      return NextResponse.redirect(new URL('/admin/loginAdmin', request.url))
-    }
-
+    if (!token) return NextResponse.redirect(new URL('/admin/loginAdmin', request.url))
     const payload = decodeJwtPayload(token)
-    const rawRole = payload?.role || (Array.isArray(payload?.roles) ? payload.roles[0] : null)
-    const role = rawRole?.toUpperCase() || null
-
-    if (role !== 'ADMIN') {
-      return NextResponse.redirect(new URL('/admin/loginAdmin', request.url))
-    }
+    const role = (payload?.role || (Array.isArray(payload?.roles) ? payload.roles[0] : null))?.toUpperCase()
+    if (role !== 'ADMIN') return NextResponse.redirect(new URL('/admin/loginAdmin', request.url))
   }
 
-  // Validación para rutas de proveedor
+  // --- Supplier ---
   if (pathname.startsWith('/supplier')) {
-    if (!token) {
-      return NextResponse.redirect(new URL('/supplier/loginSupplier', request.url))
-    }
-
+    if (!token) return NextResponse.redirect(new URL('/supplier/loginSupplier', request.url))
     const payload = decodeJwtPayload(token)
-    const rawRole = payload?.role || (Array.isArray(payload?.roles) ? payload.roles[0] : null)
-    const role = rawRole?.toUpperCase() || null
+    const role = (payload?.role || (Array.isArray(payload?.roles) ? payload.roles[0] : null))?.toUpperCase()
+    if (role !== 'PROVIDER') return NextResponse.redirect(new URL('/supplier/loginSupplier', request.url))
+  }
 
-    if (role !== 'PROVIDER') {
-      return NextResponse.redirect(new URL('/supplier/loginSupplier', request.url))
-    }
+  // --- Usuario por defecto ---
+  if (!pathname.startsWith('/admin') && !pathname.startsWith('/supplier')) {
+    if (!token) return NextResponse.redirect(new URL('/login', request.url))
+    const payload = decodeJwtPayload(token)
+    const role = (payload?.role || (Array.isArray(payload?.roles) ? payload.roles[0] : null))?.toUpperCase()
+    if (role !== 'USER') return NextResponse.redirect(new URL('/login', request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/admin', '/admin/:path*', '/supplier', '/supplier/:path*'],
+  matcher: ['/admin/:path*', '/supplier/:path*'] // quita '/:path*' para no atrapar todo
 }

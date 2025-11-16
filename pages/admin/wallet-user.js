@@ -1,24 +1,20 @@
+// pages/admin/wallet-user.js
 import { useEffect, useState } from 'react'
 import AdminNavBar from '../../components/AdminNavBar'
 import ConfirmModal from '../../components/ConfirmModal'
 import { useAuth } from '../../context/AuthProvider'
-import {
-  FaCheckCircle,
-  FaTimesCircle,
-  FaSpinner
-} from 'react-icons/fa'
+import { FaCheckCircle, FaTimesCircle, FaSpinner } from 'react-icons/fa'
 import Head from 'next/head'
 
 export default function WalletUserPending() {
   const { ensureValidAccess, logout } = useAuth()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState({}) // id -> boolean
+  const [actionLoading, setActionLoading] = useState({})
   const [error, setError] = useState(null)
 
   const BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
-  // confirm modal state
   const [confirmData, setConfirmData] = useState({
     open: false,
     id: null,
@@ -28,16 +24,13 @@ export default function WalletUserPending() {
 
   useEffect(() => {
     fetchPending()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const getAuthToken = async () => {
     try {
-      // try provider helper first
       const t = typeof ensureValidAccess === 'function' ? await ensureValidAccess() : null
       if (t) return t
     } catch (_) {}
-    // fallback to localStorage
     if (typeof window !== 'undefined') return localStorage.getItem('accessToken')
     return null
   }
@@ -56,8 +49,7 @@ export default function WalletUserPending() {
         credentials: token ? 'omit' : 'include'
       })
 
-      if (res.status === 401) {
-        // force local logout if unauthorized
+      if (res.status === 401 || res.status === 403) {
         try { logout() } catch (_) {}
         throw new Error('No autorizado')
       }
@@ -68,7 +60,6 @@ export default function WalletUserPending() {
       }
 
       const data = await res.json()
-      // Expect array of { id, userId, userName, amount, method, createdAt, status, meta }
       setItems(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error('Error fetching pending top-ups:', err)
@@ -80,7 +71,6 @@ export default function WalletUserPending() {
   }
 
   const performAction = async (id, action) => {
-    // action: 'approve' | 'reject'
     setActionLoading(prev => ({ ...prev, [id]: true }))
     setError(null)
     try {
@@ -88,7 +78,6 @@ export default function WalletUserPending() {
       const headers = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
-      // Ajuste: usar endpoints correctos según tu backend
       const url = action === 'approve'
         ? `${BASE}/api/wallet/admin/approve/${id}`
         : `${BASE}/api/wallet/admin/reject/${id}`
@@ -97,10 +86,10 @@ export default function WalletUserPending() {
         method: 'POST',
         headers,
         credentials: token ? 'omit' : 'include',
-        body: JSON.stringify({}) // keep body empty but present if server expects JSON
+        body: JSON.stringify({})
       })
 
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 403) {
         try { logout() } catch (_) {}
         throw new Error('No autorizado')
       }
@@ -110,7 +99,6 @@ export default function WalletUserPending() {
         throw new Error(txt || `Error ${res.status}`)
       }
 
-      // optimistic update: remove item or set status
       setItems(prev => prev.filter(i => i.id !== id))
     } catch (err) {
       console.error(`Error ${action} top-up ${id}:`, err)
@@ -120,7 +108,6 @@ export default function WalletUserPending() {
     }
   }
 
-  // open confirmation modal before performing action
   const requestActionWithConfirm = (id, action, userName, amount) => {
     const actionText = action === 'approve' ? 'aprobar' : 'rechazar'
     const message = `¿Seguro que quieres ${actionText} la recarga de ${userName ?? 'este usuario'} por ${typeof amount === 'number' ? amount.toFixed(2) : amount}?`
@@ -181,7 +168,8 @@ export default function WalletUserPending() {
               {items.map(item => (
                 <article className="card" key={item.id}>
                   <div className="card-left">
-                    <div className="user">{item.userName ?? item.userId ?? 'Usuario'}</div>
+                    {/* Cambio: usar item.user */}
+                    <div className="user">{item.user ?? item.userName ?? item.userId ?? 'Usuario'}</div>
                     <div className="meta">{item.method ? item.method : 'Método'}</div>
                     <div className="date">{new Date(item.createdAt ?? Date.now()).toLocaleString()}</div>
                   </div>
@@ -192,7 +180,7 @@ export default function WalletUserPending() {
                     <div className="actions">
                       <button
                         className="btn-approve"
-                        onClick={() => requestActionWithConfirm(item.id, 'approve', item.userName, item.amount)}
+                        onClick={() => requestActionWithConfirm(item.id, 'approve', item.user ?? item.userName, item.amount)}
                         disabled={Boolean(actionLoading[item.id])}
                         aria-label={`Aprobar recarga ${item.id}`}
                       >
@@ -201,7 +189,7 @@ export default function WalletUserPending() {
 
                       <button
                         className="btn-reject"
-                        onClick={() => requestActionWithConfirm(item.id, 'reject', item.userName, item.amount)}
+                        onClick={() => requestActionWithConfirm(item.id, 'reject', item.user ?? item.userName, item.amount)}
                         disabled={Boolean(actionLoading[item.id])}
                         aria-label={`Rechazar recarga ${item.id}`}
                       >
@@ -226,8 +214,7 @@ export default function WalletUserPending() {
         onCancel={handleCancelConfirm}
         loading={Boolean(confirmData.open && confirmData.id && actionLoading[confirmData.id])}
       />
-
-      <style jsx>{`
+            <style jsx>{`
         .error-msg {
           max-width: 720px;
           margin: 0 auto 12px;
@@ -294,7 +281,6 @@ export default function WalletUserPending() {
         .spin { animation: spin 1s linear infinite; }
         .spin.small { width:16px; height:16px; }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
-
       `}</style>
     </>
   )

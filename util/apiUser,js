@@ -1,0 +1,35 @@
+import axios from 'axios'
+import { getUserToken, clearUserAccess, decodeRole } from './token'
+
+const apiUser = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  withCredentials: true,
+})
+
+apiUser.interceptors.request.use(cfg => {
+  const token = getUserToken()
+  if (token) {
+    const role = decodeRole(token)
+    if (role !== 'seller') { // rol esperado para usuarios
+      clearUserAccess()
+      window.dispatchEvent(new CustomEvent('session:user:logout'))
+      throw new axios.Cancel('Wrong role for user area')
+    }
+    cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${token}` }
+  }
+  return cfg
+})
+
+apiUser.interceptors.response.use(
+  res => res,
+  err => {
+    const status = err?.response?.status
+    if (status === 401 || status === 403) {
+      clearUserAccess()
+      window.dispatchEvent(new CustomEvent('session:user:logout'))
+    }
+    return Promise.reject(err)
+  }
+)
+
+export default apiUser

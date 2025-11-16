@@ -18,24 +18,29 @@ export default function BilleteraSupplier() {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const hasFetched = useRef(false);
 
-  // Tomar la URL base desde la variable de entorno NEXT_PUBLIC_API_URL
-  // Normaliza quitando slash final. Si no existe, usamos cadena vacía (rutas relativas).
+  // BASE desde variable de entorno (SSR-safe)
   const rawApiBase = process.env.NEXT_PUBLIC_API_URL;
   const apiBase = rawApiBase ? rawApiBase.replace(/\/+$/, '') : '';
-  if (!rawApiBase && typeof window !== 'undefined') {
-    console.warn('NEXT_PUBLIC_API_URL no está definida. Usando rutas relativas.');
-  }
+
+  // Aviso sólo en cliente para evitar diferencias SSR/CSR
+  useEffect(() => {
+    if (!rawApiBase) {
+      console.warn('NEXT_PUBLIC_API_URL no está definida. Usando rutas relativas.');
+    }
+  }, [rawApiBase]);
 
   // util: construir endpoint sin duplicar slashes
   const buildUrl = (path) => `${apiBase}${path.startsWith('/') ? '' : '/'}${path}`;
 
   useEffect(() => {
     if (!router.isReady || hasFetched.current) return;
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     if (!token) {
       router.push('/supplier/loginSupplier');
       return;
     }
+
     hasFetched.current = true;
     (async () => {
       try {

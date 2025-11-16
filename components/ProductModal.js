@@ -44,13 +44,14 @@ export default function ProductModal({ visible, onClose, onSuccess, initialData 
     if (initialData) {
       setForm({
         name: initialData.name ?? '',
-        categoryId: initialData.categoryId ?? initialData.categoryId?.toString?.() ?? '',
+        categoryId: initialData.categoryId?.toString?.() ?? '',
         terms: initialData.terms ?? '',
         productDetail: initialData.productDetail ?? '',
         requestDetail: initialData.requestDetail ?? '',
         days: initialData.days ?? '',
-        salePrice: initialData.salePrice != null ? (Number(initialData.salePrice) / 100).toFixed(2) : '',
-        renewalPrice: initialData.renewalPrice != null ? (Number(initialData.renewalPrice) / 100).toFixed(2) : '',
+        // precios vienen del backend como BigDecimal (decimales), se muestran tal cual
+        salePrice: initialData.salePrice != null ? String(initialData.salePrice) : '',
+        renewalPrice: initialData.renewalPrice != null ? String(initialData.renewalPrice) : '',
         isRenewable: !!initialData.isRenewable,
         isOnRequest: !!initialData.isOnRequest,
         imageUrl: initialData.imageUrl ?? ''
@@ -94,10 +95,10 @@ export default function ProductModal({ visible, onClose, onSuccess, initialData 
     }
   }
 
-  const toCentavos = (val) => {
+  const toDecimal = (val) => {
     if (val === undefined || val === null || val === '') return null
     const f = parseFloat(String(val).replace(',', '.'))
-    return Number.isNaN(f) ? null : Math.round(f * 100)
+    return Number.isNaN(f) ? null : f
   }
 
   const toInteger = (val) => {
@@ -129,8 +130,9 @@ export default function ProductModal({ visible, onClose, onSuccess, initialData 
         productDetail: form.productDetail?.trim() || null,
         requestDetail: form.requestDetail?.trim() || null,
         days: toInteger(form.days),
-        salePrice: toCentavos(form.salePrice),
-        renewalPrice: toCentavos(form.renewalPrice),
+        // ahora se envían decimales directamente (BigDecimal en backend)
+        salePrice: toDecimal(form.salePrice),
+        renewalPrice: toDecimal(form.renewalPrice),
         isRenewable: !!form.isRenewable,
         isOnRequest: !!form.isOnRequest,
         imageUrl: form.imageUrl || null
@@ -142,7 +144,6 @@ export default function ProductModal({ visible, onClose, onSuccess, initialData 
 
       const token = localStorage.getItem('accessToken')
 
-      // If initialData has id, perform PUT to update, otherwise POST to create
       if (initialData && initialData.id) {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/products/${initialData.id}`, {
           method: 'PUT',

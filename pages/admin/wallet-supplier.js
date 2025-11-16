@@ -10,7 +10,7 @@ export default function WalletSupplierPending() {
   const { ensureValidAccess, logout } = useAuth()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState({}) // id -> boolean
+  const [actionLoading, setActionLoading] = useState({})
   const [error, setError] = useState(null)
 
   const BASE = process.env.NEXT_PUBLIC_API_URL || ''
@@ -24,7 +24,6 @@ export default function WalletSupplierPending() {
 
   useEffect(() => {
     fetchPending()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const getAuthToken = async () => {
@@ -44,7 +43,6 @@ export default function WalletSupplierPending() {
       const headers = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
-      // mismo endpoint que usas para usuarios: /api/wallet/admin/pending
       const res = await fetch(`${BASE}/api/wallet/admin/pending-provider`, {
         method: 'GET',
         headers,
@@ -62,8 +60,6 @@ export default function WalletSupplierPending() {
       }
 
       const data = await res.json()
-      // se espera array de items: { id, userId, userName, amount, method, createdAt, status, meta }
-      // para proveedores el payload debe ser compatible con este formato
       setItems(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error('Error fetching pending wallet approvals:', err)
@@ -75,7 +71,6 @@ export default function WalletSupplierPending() {
   }
 
   const performAction = async (id, action) => {
-    // action: 'approve' | 'reject'
     setActionLoading(prev => ({ ...prev, [id]: true }))
     setError(null)
     try {
@@ -83,7 +78,6 @@ export default function WalletSupplierPending() {
       const headers = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
-      // reutiliza los mismos endpoints: approve / reject
       const url = action === 'approve'
         ? `${BASE}/api/wallet/admin/approve/${id}`
         : `${BASE}/api/wallet/admin/reject/${id}`
@@ -92,7 +86,7 @@ export default function WalletSupplierPending() {
         method: 'POST',
         headers,
         credentials: token ? 'omit' : 'include',
-        body: JSON.stringify({}) // mantengo body vacío por compatibilidad
+        body: JSON.stringify({})
       })
 
       if (res.status === 401) {
@@ -105,7 +99,6 @@ export default function WalletSupplierPending() {
         throw new Error(txt || `Error ${res.status}`)
       }
 
-      // actualización optimista: eliminar la solicitud aprobada/rechazada
       setItems(prev => prev.filter(i => i.id !== id))
     } catch (err) {
       console.error(`Error ${action} wallet request ${id}:`, err)
@@ -175,7 +168,8 @@ export default function WalletSupplierPending() {
               {items.map(item => (
                 <article className="card" key={item.id}>
                   <div className="card-left">
-                    <div className="user">{item.userName ?? item.userId ?? 'Proveedor'}</div>
+                    {/* Mostrar el campo user del backend */}
+                    <div className="user">{item.user ?? 'Proveedor'}</div>
                     <div className="meta">{item.method ? item.method : 'Método'}</div>
                     <div className="date">{new Date(item.createdAt ?? Date.now()).toLocaleString()}</div>
                   </div>
@@ -186,7 +180,7 @@ export default function WalletSupplierPending() {
                     <div className="actions">
                       <button
                         className="btn-approve"
-                        onClick={() => requestActionWithConfirm(item.id, 'approve', item.userName, item.amount)}
+                        onClick={() => requestActionWithConfirm(item.id, 'approve', item.user, item.amount)}
                         disabled={Boolean(actionLoading[item.id])}
                         aria-label={`Aprobar recarga ${item.id}`}
                       >
@@ -195,7 +189,7 @@ export default function WalletSupplierPending() {
 
                       <button
                         className="btn-reject"
-                        onClick={() => requestActionWithConfirm(item.id, 'reject', item.userName, item.amount)}
+                        onClick={() => requestActionWithConfirm(item.id, 'reject', item.user, item.amount)}
                         disabled={Boolean(actionLoading[item.id])}
                         aria-label={`Rechazar recarga ${item.id}`}
                       >
@@ -220,8 +214,7 @@ export default function WalletSupplierPending() {
         onCancel={handleCancelConfirm}
         loading={Boolean(confirmData.open && confirmData.id && actionLoading[confirmData.id])}
       />
-
-      <style jsx>{`
+            <style jsx>{`
         .error-msg {
           max-width: 720px;
           margin: 0 auto 12px;
