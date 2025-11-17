@@ -125,6 +125,35 @@ export default function WalletUserPending() {
     setConfirmData({ open: false, id: null, action: null, message: '' })
   }
 
+  // parse values (number|string) into Number (units)
+  const parseToNumber = (v) => {
+    if (v === null || v === undefined) return null
+    if (typeof v === 'number') return v
+    if (typeof v === 'string') {
+      const trimmed = v.trim()
+      if (trimmed === '') return null
+      const n = parseFloat(trimmed.replace(',', '.'))
+      return Number.isNaN(n) ? null : n
+    }
+    return null
+  }
+
+  // format amount for display:
+  // - if type === 'withdrawal' prefer realAmount (fall back to amount)
+  // - otherwise use amount
+  // NOTE: if backend sends realAmount in cents, divide by 100 here.
+  const formatItemAmount = (item) => {
+    const currency = item.currency || 'PEN'
+    const isWithdrawal = item.type && item.type.toLowerCase() === 'withdrawal'
+    const raw = isWithdrawal
+      ? (item.realAmount !== undefined && item.realAmount !== null ? item.realAmount : item.amount)
+      : item.amount
+
+    const num = parseToNumber(raw)
+    const display = num == null ? '0.00' : num.toFixed(2)
+    return `${currency} ${display}`
+  }
+
   return (
     <>
       <Head>
@@ -168,14 +197,15 @@ export default function WalletUserPending() {
               {items.map(item => (
                 <article className="card" key={item.id}>
                   <div className="card-left">
-                    {/* Cambio: usar item.user */}
+                    {/* usuario */}
                     <div className="user">{item.user ?? item.userName ?? item.userId ?? 'Usuario'}</div>
-                    <div className="meta">{item.method ? item.method : 'Método'}</div>
+                    {/* Mostrar el campo type (si viene), si no existe cae a method */}
+                    <div className="meta">{(item.type ?? item.method ?? 'Tipo').toString()}</div>
                     <div className="date">{new Date(item.createdAt ?? Date.now()).toLocaleString()}</div>
                   </div>
 
                   <div className="card-right">
-                    <div className="amount">{typeof item.amount === 'number' ? item.amount.toFixed(2) : item.amount}</div>
+                    <div className="amount">{formatItemAmount(item)}</div>
 
                     <div className="actions">
                       <button
@@ -214,7 +244,7 @@ export default function WalletUserPending() {
         onCancel={handleCancelConfirm}
         loading={Boolean(confirmData.open && confirmData.id && actionLoading[confirmData.id])}
       />
-            <style jsx>{`
+      <style jsx>{`
         .error-msg {
           max-width: 720px;
           margin: 0 auto 12px;
@@ -259,7 +289,7 @@ export default function WalletUserPending() {
 
         .card-left { display:flex; flex-direction:column; gap:6px; }
         .user { font-weight:800; color:#fff; }
-        .meta { color:#bdbdbd; font-size:0.9rem; }
+        .meta { color:#bdbdbd; font-size:0.9rem; text-transform: capitalize; }
         .date { color:#9aa0a6; font-size:0.8rem; }
 
         .card-right { display:flex; align-items:center; gap:12px; }

@@ -110,7 +110,7 @@ export default function WalletSupplierPending() {
 
   const requestActionWithConfirm = (id, action, userName, amount) => {
     const actionText = action === 'approve' ? 'aprobar' : 'rechazar'
-    const message = `¿Seguro que quieres ${actionText} la recarga de ${userName ?? 'este proveedor'} por ${typeof amount === 'number' ? amount.toFixed(2) : amount}?`
+    const message = `¿Seguro que quieres ${actionText} la solicitud de ${userName ?? 'este proveedor'} por ${typeof amount === 'number' ? amount.toFixed(2) : amount}?`
     setConfirmData({ open: true, id, action, message })
   }
 
@@ -123,6 +123,33 @@ export default function WalletSupplierPending() {
 
   const handleCancelConfirm = () => {
     setConfirmData({ open: false, id: null, action: null, message: '' })
+  }
+
+  // Helper: parse amount-like values (number or string) into Number (units)
+  const parseToNumber = (v) => {
+    if (v === null || v === undefined) return null
+    if (typeof v === 'number') return v
+    if (typeof v === 'string') {
+      const trimmed = v.trim()
+      if (trimmed === '') return null
+      const n = parseFloat(trimmed.replace(',', '.'))
+      return Number.isNaN(n) ? null : n
+    }
+    return null
+  }
+
+  // Helper: format amount for display
+  // If item.type === 'withdrawal' prefer item.realAmount, else use item.amount
+  const formatItemAmount = (item) => {
+    const currency = item.currency || 'PEN'
+    const isWithdrawal = item.type && item.type.toLowerCase() === 'withdrawal'
+    const raw = isWithdrawal
+      ? (item.realAmount !== undefined && item.realAmount !== null ? item.realAmount : item.amount)
+      : item.amount
+
+    const num = parseToNumber(raw)
+    const display = num == null ? '0.00' : num.toFixed(2)
+    return `${currency} ${display}`
   }
 
   return (
@@ -138,7 +165,7 @@ export default function WalletSupplierPending() {
           <header className="mb-6 flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold">Recargas pendientes (Proveedores)</h1>
-              <p className="text-sm text-gray-400">Aprobar o rechazar recargas solicitadas por proveedores</p>
+              <p className="text-sm text-gray-400">Aprobar o rechazar solicitudes recibidas</p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -162,27 +189,26 @@ export default function WalletSupplierPending() {
               ))}
             </div>
           ) : items.length === 0 ? (
-            <div className="empty">No hay recargas pendientes</div>
+            <div className="empty">No hay solicitudes pendientes</div>
           ) : (
             <div className="grid-cards">
               {items.map(item => (
                 <article className="card" key={item.id}>
                   <div className="card-left">
-                    {/* Mostrar el campo user del backend */}
                     <div className="user">{item.user ?? 'Proveedor'}</div>
-                    <div className="meta">{item.method ? item.method : 'Método'}</div>
+                    <div className="meta">{item.type ?? item.method ?? 'Tipo'}</div>
                     <div className="date">{new Date(item.createdAt ?? Date.now()).toLocaleString()}</div>
                   </div>
 
                   <div className="card-right">
-                    <div className="amount">{typeof item.amount === 'number' ? item.amount.toFixed(2) : item.amount}</div>
+                    <div className="amount">{formatItemAmount(item)}</div>
 
                     <div className="actions">
                       <button
                         className="btn-approve"
                         onClick={() => requestActionWithConfirm(item.id, 'approve', item.user, item.amount)}
                         disabled={Boolean(actionLoading[item.id])}
-                        aria-label={`Aprobar recarga ${item.id}`}
+                        aria-label={`Aprobar solicitud ${item.id}`}
                       >
                         {actionLoading[item.id] ? <FaSpinner className="spin small" /> : <FaCheckCircle />}
                       </button>
@@ -191,7 +217,7 @@ export default function WalletSupplierPending() {
                         className="btn-reject"
                         onClick={() => requestActionWithConfirm(item.id, 'reject', item.user, item.amount)}
                         disabled={Boolean(actionLoading[item.id])}
-                        aria-label={`Rechazar recarga ${item.id}`}
+                        aria-label={`Rechazar solicitud ${item.id}`}
                       >
                         {actionLoading[item.id] ? <FaSpinner className="spin small" /> : <FaTimesCircle />}
                       </button>
@@ -214,7 +240,7 @@ export default function WalletSupplierPending() {
         onCancel={handleCancelConfirm}
         loading={Boolean(confirmData.open && confirmData.id && actionLoading[confirmData.id])}
       />
-            <style jsx>{`
+      <style jsx>{`
         .error-msg {
           max-width: 720px;
           margin: 0 auto 12px;
@@ -259,11 +285,11 @@ export default function WalletSupplierPending() {
 
         .card-left { display:flex; flex-direction:column; gap:6px; }
         .user { font-weight:800; color:#fff; }
-        .meta { color:#bdbdbd; font-size:0.9rem; }
+        .meta { color:#bdbdbd; font-size:0.9rem; text-transform: capitalize; }
         .date { color:#9aa0a6; font-size:0.8rem; }
 
         .card-right { display:flex; align-items:center; gap:12px; }
-        .amount { font-weight:900; color:#fff; font-size:1.05rem; min-width:96px; text-align:right; }
+        .amount { font-weight:900; color:#fff; font-size:1.05rem; min-width:120px; text-align:right; }
 
         .actions { display:flex; gap:8px; align-items:center; }
 

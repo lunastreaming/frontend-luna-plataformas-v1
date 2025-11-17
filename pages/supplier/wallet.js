@@ -81,8 +81,9 @@ export default function BilleteraSupplier() {
     });
     if (!res.ok) return;
     const data = await res.json();
-    if (Array.isArray(data)) setPending(data);
-    else if (Array.isArray(data.pending)) setPending(data.pending);
+    // backend puede devolver array o objeto { pending: [...] }
+    const list = Array.isArray(data) ? data : Array.isArray(data.pending) ? data.pending : [];
+    setPending(list);
   }
 
   const handleAddClick = () => setModalOpen(true);
@@ -104,6 +105,81 @@ export default function BilleteraSupplier() {
     await fetchMeAndPopulate(token);
     await fetchPendingRequests(token);
     await fetchUserTransactions(token);
+  };
+
+  // cancelar pending (ejemplo simple que abre modal de confirmación)
+  const openCancelConfirm = (id) => {
+    setConfirmTargetId(id);
+    setConfirmOpen(true);
+  };
+
+  const onConfirmCancel = async () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    if (!token || !confirmTargetId) return;
+    setConfirmLoading(true);
+    try {
+      const res = await fetch(buildUrl(`/api/wallet/cancel/pending/${confirmTargetId}`), {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        // puedes parsear y mostrar mensaje aquí
+        throw new Error('Error al cancelar');
+      }
+      // refrescar datos
+      await fetchMeAndPopulate(token);
+      await fetchPendingRequests(token);
+      await fetchUserTransactions(token);
+      setConfirmOpen(false);
+      setConfirmTargetId(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
+  // Helper: normaliza un valor (number|string) a unidades (ej. 930.25)
+  const parseAmountToUnits = (value, { maybeIsCents = false } = {}) => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number') {
+      if (maybeIsCents && Number.isInteger(value) && Math.abs(value) > 1000) return value / 100;
+      return value;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.includes('.')) {
+        const n = parseFloat(trimmed);
+        return Number.isNaN(n) ? null : n;
+      }
+      const asInt = parseInt(trimmed, 10);
+      if (Number.isNaN(asInt)) return null;
+      if (maybeIsCents && Math.abs(asInt) > 1000) return asInt / 100;
+      return asInt;
+    }
+    return null;
+  };
+
+  // Helper: formatea monto y aplica signo negativo antes del monto (no antes de la moneda)
+  const formatPendingAmount = (p) => {
+    const currency = p.currency || 'PEN';
+    const isWithdrawal = p.type && p.type.toLowerCase() === 'withdrawal';
+
+    // prefer realAmount for withdrawals, fall back to amount
+    const raw = isWithdrawal
+      ? (p.realAmount !== undefined && p.realAmount !== null ? p.realAmount : p.amount)
+      : p.amount;
+
+    // ajusta maybeIsCents = true si el backend envía centavos (BIGINT)
+    const units = parseAmountToUnits(raw, { maybeIsCents: false });
+    const value = units === null ? 0 : units;
+
+    // si es withdrawal, visualmente lo mostramos negativo (anteponer '-' al monto)
+    const absVal = Math.abs(value).toFixed(2);
+    const sign = isWithdrawal ? '-' : '';
+
+    // resultado: "PEN -930.00" o "PEN 930.00"
+    return `${currency} ${sign}${absVal}`;
   };
 
   return (
@@ -133,14 +209,14 @@ export default function BilleteraSupplier() {
               {pending.map((p) => (
                 <li key={p.id || p.requestId}>
                   <div className="pending-info">
-                    <div className="pending-amt">{p.currency || 'PEN'} {Number(p.amount).toFixed(2)}</div>
+                    <div className="pending-amt">{formatPendingAmount(p)}</div>
                     <div className="pending-meta">
-                      <div className="pending-desc">{p.description || 'Solicitud de recarga'}</div>
+                      <div className="pending-desc">{p.description || 'Solicitud pendiente'}</div>
                       <div className="pending-date">{p.createdAt ? new Date(p.createdAt).toLocaleString() : ''}</div>
                     </div>
                   </div>
                   <div className="pending-actions">
-                    <button className="btn-cancel" onClick={() => setConfirmTargetId(p.id || p.requestId)}>Eliminar</button>
+                    <button className="btn-cancel" onClick={() => openCancelConfirm(p.id || p.requestId)}>Eliminar</button>
                   </div>
                 </li>
               ))}
@@ -192,7 +268,7 @@ export default function BilleteraSupplier() {
         title="Confirmar cancelación"
         message="¿Deseas cancelar esta solicitud pendiente?"
         onCancel={() => setConfirmOpen(false)}
-        onConfirm={() => {}}
+        onConfirm={onConfirmCancel}
       />
 
       <style jsx>{`
