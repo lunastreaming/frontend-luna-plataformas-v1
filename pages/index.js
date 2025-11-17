@@ -1,4 +1,3 @@
-// pages/index.js
 import Head from 'next/head'
 import { useState, useRef, useEffect } from 'react'
 import Navbar from '../components/Navbar'
@@ -52,7 +51,7 @@ export default function Home() {
         token = null
       }
       if (!token) {
-        setUserBalance(0) // no hay sesión
+        setUserBalance(0)
         return
       }
 
@@ -74,7 +73,8 @@ export default function Home() {
     }
     loadUserBalance()
   }, [ensureValidAccess])
-    // cerrar vista ampliada
+
+  // cerrar vista ampliada
   const cerrarVistaAmpliada = () => {
     setImagenActiva(null)
     setZoomActivo(false)
@@ -135,7 +135,7 @@ export default function Home() {
     return () => { mounted = false }
   }, [BASE])
 
-  // fetch productos
+  // fetch productos (adaptado a ProductWithStockCountResponse)
   useEffect(() => { fetchProducts() }, [selectedCategory])
   async function fetchProducts() {
     setProdLoading(true)
@@ -147,41 +147,58 @@ export default function Home() {
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
+
       let raw = []
-if (Array.isArray(data)) {
-  raw = data
-} else if (Array.isArray(data?.content)) {
-  raw = data.content
-} else if (Array.isArray(data?.items)) {
-  raw = data.items
-} else if (Array.isArray(data?.rows)) {
-  raw = data.rows
-} else {
-  console.warn('[fetchProducts] respuesta no contiene array en content/items/rows', data)
-  raw = []
-}
+      if (Array.isArray(data)) {
+        raw = data
+      } else if (Array.isArray(data?.content)) {
+        raw = data.content
+      } else if (Array.isArray(data?.items)) {
+        raw = data.items
+      } else if (Array.isArray(data?.rows)) {
+        raw = data.rows
+      } else {
+        console.warn('[fetchProducts] respuesta no contiene array en content/items/rows', data)
+        raw = []
+      }
 
-const normalized = raw.map(item => {
-  const p = item.product ?? item
-  const inlineStockResponses = Array.isArray(item.stockResponses)
-    ? item.stockResponses
-    : Array.isArray(p.stockResponses)
-      ? p.stockResponses
-      : (Array.isArray(p.stocks) ? p.stocks : [])
+      // Normalizar respuesta nueva/antigua:
+      // - Nueva: { product: {...}, availableStockCount: 5 }
+      // - Antigua: { product: {...}, stockResponses: [...] } o product + stockResponses en product
+      const normalized = raw.map((item) => {
+        // si viene la forma { product: {...}, availableStockCount: N }
+        const productWrapper = item.product ?? item
+        const availableStockCount = typeof item.availableStockCount === 'number'
+          ? item.availableStockCount
+          : (typeof productWrapper.availableStockCount === 'number' ? productWrapper.availableStockCount : null)
 
-  return {
-    id: p.id,
-    name: p.name,
-    salePrice: p.salePrice,
-    renewalPrice: p.renewalPrice,
-    providerName: p.providerName,
-    categoryId: p.categoryId,
-    categoryName: p.categoryName,
-    imageUrl: p.imageUrl,
-    stockResponses: inlineStockResponses,
-    stock: Array.isArray(inlineStockResponses) ? inlineStockResponses.length : 0
-  }
-})
+        // posible lista histórica de stockResponses
+        const inlineStockResponses = Array.isArray(item.stockResponses)
+          ? item.stockResponses
+          : Array.isArray(productWrapper.stockResponses)
+            ? productWrapper.stockResponses
+            : (Array.isArray(productWrapper.stocks) ? productWrapper.stocks : [])
+
+        const stockCount = availableStockCount != null
+          ? Number(availableStockCount)
+          : (Array.isArray(inlineStockResponses) ? inlineStockResponses.length : 0)
+
+        return {
+          id: productWrapper.id,
+          name: productWrapper.name,
+          salePrice: productWrapper.salePrice,
+          renewalPrice: productWrapper.renewalPrice,
+          providerName: productWrapper.providerName,
+          categoryId: productWrapper.categoryId,
+          categoryName: productWrapper.categoryName,
+          imageUrl: productWrapper.imageUrl,
+          // conservamos stockResponses por compatibilidad si existieran
+          stockResponses: inlineStockResponses,
+          // stock ahora proviene de availableStockCount cuando esté presente
+          stock: stockCount
+        }
+      })
+
       setProducts(normalized)
     } catch (err) {
       console.error('Error cargando productos:', err)
@@ -214,20 +231,21 @@ const normalized = raw.map(item => {
   }
 
   // navegar / seleccionar categoría (acepta objeto o id)
-const goToCategory = (catOrId) => {
-  if (!catOrId) {
-    setSelectedCategory(null)
-    return
+  const goToCategory = (catOrId) => {
+    if (!catOrId) {
+      setSelectedCategory(null)
+      return
+    }
+
+    const id = (typeof catOrId === 'object')
+      ? (catOrId.id ?? catOrId._id ?? null)
+      : catOrId
+
+    console.debug('[goToCategory] selected id =>', id)
+    setSelectedCategory(id)
   }
 
-  const id = (typeof catOrId === 'object')
-    ? (catOrId.id ?? catOrId._id ?? null)
-    : catOrId
-
-  console.debug('[goToCategory] selected id =>', id)
-  setSelectedCategory(id)
-}
-    return (
+  return (
     <>
       <Head>
         <title>Luna Streaming</title>
@@ -299,7 +317,7 @@ const goToCategory = (catOrId) => {
                 <div className="fade right" style={{ display: hasOverflow ? 'block' : 'none' }} />
                 <button
                   className="subtle-arrow left"
-                  onClick={() => scrollByOffset(-1)}
+                  onClick={() => stripRef.current && stripRef.current.scrollBy({ left: -200, behavior: 'smooth' })}
                   aria-hidden={!hasOverflow}
                   style={{ display: hasOverflow ? 'flex' : 'none' }}
                 >
@@ -307,7 +325,7 @@ const goToCategory = (catOrId) => {
                 </button>
                 <button
                   className="subtle-arrow right"
-                  onClick={() => scrollByOffset(1)}
+                  onClick={() => stripRef.current && stripRef.current.scrollBy({ left: 200, behavior: 'smooth' })}
                   aria-hidden={!hasOverflow}
                   style={{ display: hasOverflow ? 'flex' : 'none' }}
                 >

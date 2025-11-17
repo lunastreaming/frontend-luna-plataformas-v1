@@ -4,6 +4,7 @@ import NavBarSupplier from '../../components/NavBarSupplier';
 import Footer from '../../components/Footer';
 import AddBalanceModal from '../../components/AddBalanceModalSupplier';
 import ConfirmModal from '../../components/ConfirmModal';
+import LiquidarModal from '../../components/LiquidarModal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExchangeAlt } from '@fortawesome/free-solid-svg-icons';
 
@@ -13,6 +14,7 @@ export default function BilleteraSupplier() {
   const [movimientos, setMovimientos] = useState([]);
   const [pending, setPending] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [liquidarOpen, setLiquidarOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTargetId, setConfirmTargetId] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
@@ -85,7 +87,11 @@ export default function BilleteraSupplier() {
 
   const handleAddClick = () => setModalOpen(true);
   const handleTransferClick = () => router.push('/supplier/transferencia');
-  const handleLiquidarClick = () => router.push('/supplier/liquidar');
+  // antes navegábamos a otra página; ahora abrimos el modal de liquidar
+  const handleLiquidarClick = () => {
+    setModalOpen(false); // opcional: cerrar add-balance si estaba abierto
+    setLiquidarOpen(true);
+  };
 
   const handleAdd = async ({ amount, currency }) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -168,6 +174,18 @@ export default function BilleteraSupplier() {
 
       <Footer />
       <AddBalanceModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={handleAdd} />
+      <LiquidarModal
+        open={liquidarOpen}
+        onClose={() => setLiquidarOpen(false)}
+        onDone={() => {
+          const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+          if (token) {
+            fetchMeAndPopulate(token);
+            fetchPendingRequests(token);
+            fetchUserTransactions(token);
+          }
+        }}
+      />
       <ConfirmModal
         open={confirmOpen}
         loading={confirmLoading}
