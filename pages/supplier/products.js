@@ -118,12 +118,13 @@ export default function ProductsPage() {
     maximumFractionDigits: 2
   })
 
-  const formatPrice = (valueInCentavos) => {
-    if (valueInCentavos === null || valueInCentavos === undefined) return '—'
-    const value = Number(valueInCentavos) / 100
-    if (Number.isNaN(value)) return '—'
-    return moneyFormatter.format(value)
-  }
+const formatPrice = (value) => {
+  if (value === null || value === undefined) return '—'
+  const num = Number(value)
+  if (Number.isNaN(num)) return '—'
+  return moneyFormatter.format(num)
+}
+
 
   const normalizeDateOnly = (value) => {
     if (!value) return null
